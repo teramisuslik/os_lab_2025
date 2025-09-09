@@ -22,8 +22,6 @@ pid_t *child_pids = NULL;
 int child_count = 0;
 
 void timeout_handler(int sig) {
-    printf("Timeout reached! Sending SIGKILL to all child processes\n");
-    
     if (child_pids != NULL) {
         for (int i = 0; i < child_count; i++) {
             if (child_pids[i] > 0) {
@@ -107,7 +105,7 @@ int main(int argc, char **argv) {
   }
 
   if (optind < argc) {
-    printf("Has at least one no option argument\n");
+    printf("has at least one no option argument\n");
     return 1;
   }
 

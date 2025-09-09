@@ -29,7 +29,7 @@ int main(int argc, char **argv) {
         waitpid(pid, &status, 0);
         
         if (WIFEXITED(status)) {
-            printf("Child process exited with status: %d\n", WEXITSTATUS(status));
+            printf("Child process exited with status %d\n", WEXITSTATUS(status));
         } else {
             printf("Child process terminated abnormally\n");
         }

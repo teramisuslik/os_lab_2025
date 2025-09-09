@@ -48,7 +48,7 @@ int main(int argc, char **argv) {
           case 1:
             array_size = atoi(optarg);
             if (array_size <= 0) {
-                printf("array_size  must be a positive number\n");
+                printf("array_size must be a positive number\n");
                 return 1;
             }
             break;
