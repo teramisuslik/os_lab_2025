@@ -6,6 +6,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <signal.h>
 
 #include <sys/time.h>
 #include <sys/types.h>
@@ -17,10 +18,26 @@
 #include "find_min_max.h"
 #include "utils.h"
 
+pid_t *child_pids = NULL;
+int child_count = 0;
+
+void timeout_handler(int sig) {
+    printf("Timeout reached! Sending SIGKILL to all child processes\n");
+    
+    if (child_pids != NULL) {
+        for (int i = 0; i < child_count; i++) {
+            if (child_pids[i] > 0) {
+                kill(child_pids[i], SIGKILL);
+            }
+        }
+    }
+}
+
 int main(int argc, char **argv) {
   int seed = -1;
   int array_size = -1;
   int pnum = -1;
+  int timeout = 0;
   bool with_files = false;
 
   while (true) {
@@ -29,11 +46,12 @@ int main(int argc, char **argv) {
     static struct option options[] = {{"seed", required_argument, 0, 0},
                                       {"array_size", required_argument, 0, 0},
                                       {"pnum", required_argument, 0, 0},
+                                      {"timeout", required_argument, 0, 't'},
                                       {"by_files", no_argument, 0, 'f'},
                                       {0, 0, 0, 0}};
 
     int option_index = 0;
-    int c = getopt_long(argc, argv, "f", options, &option_index);
+    int c = getopt_long(argc, argv, "ft:", options, &option_index);
 
     if (c == -1) break;
 
@@ -69,6 +87,13 @@ int main(int argc, char **argv) {
             printf("Index %d is out of options\n", option_index);
         }
         break;
+      case 't':
+        timeout = atoi(optarg);
+        if (timeout <= 0){
+          printf("timeout must be a positive number\n");
+          return 1;
+        }
+        break;
       case 'f':
         with_files = true;
         break;
@@ -87,10 +112,24 @@ int main(int argc, char **argv) {
   }
 
   if (seed == -1 || array_size == -1 || pnum == -1) {
-    printf("Usage: %s --seed \"num\" --array_size \"num\" --pnum \"num\" [--by_files]\n",
+    printf("Usage: %s --seed \"num\" --array_size \"num\" --pnum \"num\" [--timeout \"num\"] [--by_files]\n",
            argv[0]);
     return 1;
   }
+
+  if (timeout > 0) {
+      child_pids = malloc(pnum * sizeof(pid_t));
+      if (child_pids == NULL) {
+          perror("malloc failed");
+          return 1;
+      }
+      child_count = pnum;
+      for (int i = 0; i < pnum; i++) {
+          child_pids[i] = -1;
+      }
+      signal(SIGALRM, timeout_handler);
+  }
+
 
   int *array = malloc(sizeof(int) * array_size);
   GenerateArray(array, array_size, seed);
@@ -116,6 +155,10 @@ int main(int argc, char **argv) {
     if (child_pid >= 0) {
       // successful fork
       active_child_processes += 1;
+
+      if (timeout > 0){
+        child_pids[i] = child_pid;
+      }
       if (child_pid == 0) {
         // child process
         
@@ -161,9 +204,40 @@ int main(int argc, char **argv) {
     }
   }
 
-  while (active_child_processes > 0) {
-    wait(NULL);
-    active_child_processes -= 1;
+  if (timeout > 0){
+    alarm(timeout);
+  }
+
+
+ while (active_child_processes > 0) {
+    int status;
+    pid_t finished_pid = waitpid(-1, &status, 0);
+    
+    if (finished_pid > 0) {
+      active_child_processes -= 1;
+      
+      if (timeout > 0) {
+        // Обновляем массив child_pids
+        for (int i = 0; i < pnum; i++) {
+          if (child_pids[i] == finished_pid) {
+            child_pids[i] = -1;
+            break;
+          }
+        }
+        
+        if (WIFSIGNALED(status)) {
+          printf("Child process %d killed by signal: %d\n", 
+                 finished_pid, WTERMSIG(status));
+        } else if (WIFEXITED(status)) {
+          printf("Child process %d exited normally with status: %d\n",
+                 finished_pid, WEXITSTATUS(status));
+        }
+      }
+    }
+  }
+
+  if (timeout > 0) {
+    alarm(0);
   }
 
   struct MinMax min_max;
@@ -211,6 +285,12 @@ int main(int argc, char **argv) {
       if (pipes[i]) free(pipes[i]);
     }
     free(pipes);
+  }
+
+  if (child_pids != NULL) {
+    free(child_pids);
+    child_pids = NULL;
+    child_count = 0;
   }
 
   printf("Min: %d\n", min_max.min);
